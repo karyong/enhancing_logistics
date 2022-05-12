@@ -1,0 +1,527 @@
+
+```{r by job specialisation}
+  # top broad job specialisations
+(broadjobspec_count <- count_freq(logistics_stack, target_cols = vars(broad_job_spec), totaln = nrow(logistics_jobs)))
+
+(top10_broadjobspecs_plt <- hbar(broadjobspec_count %>% top_n(10), xvar = reorder(broad_job_spec, n), yvar = pct, xlab = "Top broad job specialisations", ylab = "Percentage share (%)", hjust_threshold = 0.4))
+
+svpng(fname = "top10_broadjobspecs.png", plt = top10_broadjobspecs_plt, h = 5, w = 7)
+
+  # top 10 job specialisations
+(jobspec_count <- count_freq(logistics_stack, target_cols = vars(job_specialisation), totaln = nrow(logistics_jobs)))
+
+(top10_jobspecs_plt <- hbar(jobspec_count %>% top_n(10), xvar = reorder(job_specialisation, n), yvar = pct, xlab = "Top job specialisations", ylab = "Percentage share (%)", hjust_threshold = 0.2))
+
+svpng(fname = "top10_jobspecs.png", plt = top10_jobspecs_plt, h = 5, w = 7)
+
+  # top 3 for job specialisations for major broad_job_spec
+top3_jobsspecs <- count_freq(logistics_stack %>% filter(broad_job_spec %in% broadjobspec_count$broad_job_spec[broadjobspec_count$pct >= 0.04]), target_cols = vars(broad_job_spec, job_specialisation), group_vars = vars(broad_job_spec)) %>%
+  mutate(grp_n = sum(n),
+         broad_job_spec = paste0(broad_job_spec, " (n=", grp_n, ")")) %>% 
+  slice_max(order_by = n, n = 3) %>% 
+  ungroup() %>% 
+  mutate(order = max(row_number()) - row_number())
+
+(top3_jobsspecs_plt <- top3_jobsspecs %>% 
+  ggplot(aes(x = order, y = pct, fill = broad_job_spec)) +
+  geom_col() +
+  facet_wrap(facets = vars(reorder(broad_job_spec, - n)), scales = "free_y", nrow = 2) +
+  geom_text(aes(label = sprintf("%.1f", pct * 100), 
+                hjust = ifelse(pct >= 0.5, 1, 0))) +
+  coord_flip() +
+  labs(x = "Job specialisation", y = "Percentage share (%)") +
+  scale_y_continuous(labels = function(x) round(x * 100, 0)) +
+  scale_x_continuous(breaks = top3_jobsspecs$order, labels = str_wrap(top3_jobsspecs$job_specialisation, width = 15)) +
+  theme(legend.position = "none"))
+
+svpng(fname = "top3_jobspecs_bybroadjobspecs.png", plt = top3_jobsspecs_plt, h = 5, w = 9)
+
+# (jobspecs_cbplt <- (top10_broadjobspecs_plt | top3_jobsspecs_plt) +
+#   plot_layout(widths = c(1, 3)) +
+#   plot_annotation(tag_levels = 'A'))
+# 
+# svpng(fname = "top_jobspecs_cbplt.png", plt = jobspecs_cbplt, w = 12, h = 6)
+```
+
+```{r high-value jobs - by min qualification}
+# Most jobs are at degree and diploma levels
+(min_qualif_count <- count_freq(logistics_jobs %>% filter(min_qualification != "Not Specified"), target_cols = vars(min_qualification)))
+# count_freq(logistics_jobs, target_cols = vars(min_qualification))
+
+(min_qualif_plt <- hbar(df = min_qualif_count, xvar = reorder(min_qualification, n), yvar = pct, xlab = "Min. qualification", ylab = "Percentage share (%)", hjust_threshold = .3))
+
+svpng(fname = "min_qualification.png", plt = min_qualif_plt, w = 6, h = 5)
+
+# Only 12% of the entry-level jobs are for the Bachelor's holder, which means these graduates may face underemployment since their jobs don't need such level of education.
+  # exclude 1239 rows where position_level == "Not Specified" since the corresponding min_qualification are all "Not Specified" too
+(pos_minqualif_count <- count_freq(logistics_jobs %>% filter(position_level != "Not Specified"), target_cols = vars(position_level, min_qualification), group_vars = vars(position_level)))
+
+(pos_minqualif_plt <- stacked_hbar(df = pos_minqualif_count, xvar = fct_rev(position_level), yvar = pct, fillvar = min_qualification, xlab = "Position level", ylab = "Percentage share (%)", fill_lab = "Min. qualification"))
+
+svpng(fname = "pos_minqualif.png", plt = pos_minqualif_plt, w = 6, h = 6)
+
+# On the other hand, if Diploma or Bachelor's graduates wants to work in jobs with equivalent levels, they need at least 1-2-year experiences 
+(minqualif_pos_count <- count_freq(logistics_jobs %>% filter(position_level != "Not Specified"), target_cols = vars(min_qualification, position_level), group_vars = vars(min_qualification)))
+
+(minqualif_pos_plt <- stacked_hbar(df = minqualif_pos_count, xvar = fct_rev(min_qualification), yvar = pct, fillvar = position_level, xlab = "Min. qualification", ylab = "Percentage share (%)", fill_lab = "Position level", ncol = 2))
+
+svpng(fname = "minqualif_pos.png", plt = minqualif_pos_plt, w = 6, h = 6)
+```
+
+```{r broad_job_spec and min qualification}
+# to see the high-value jobs in each broad_job_spec
+(top10_broadjobspecs <- (broadjobspec_count %>% top_n(10))$broad_job_spec)
+
+(qualif_bybjobspec_count <- count_freq(logistics_stack %>% filter(min_qualification != "Not Specified"), target_cols = vars(broad_job_spec, min_qualification), group_vars = vars(broad_job_spec)))
+
+qualif_bybjobspec_count$broad_job_spec <- factor(qualif_bybjobspec_count$broad_job_spec, levels = levels(reorder(broadjobspec_count$broad_job_spec, broadjobspec_count$n)))
+
+(qualif_bybjobspec_plt <- qualif_bybjobspec_count %>% filter(!is.na(broad_job_spec)) %>% 
+  ggplot(aes(x = broad_job_spec, y = pct, fill = fct_rev(min_qualification))) +
+  geom_col() +
+  geom_text(aes(label = ifelse(pct <=0.1, "", sprintf("%.1f", pct * 100))), position =  position_stack(vjust = 0.5)) +
+  coord_flip() +
+  scale_y_continuous(labels = function(x) round(x * 100, 0)) +
+  scale_fill_brewer(palette = "Greens") +
+  labs(x = "Broad job specialisation", y = "Percentage share (%)", fill = "Min. qualification") +
+    theme(legend.position = "bottom",
+          legend.text = element_text(size = 8)) +
+    guides(fill = guide_legend(title.position = "top",
+                               ncol = 2)))
+
+svpng(fname = "qualif_bybroadjobspec.png", plt = qualif_bybjobspec_plt, w = 6, h = 6)
+
+  # by job specialisation and broad min. qualification
+(broadqualif_bybroadjobspec_count <- count_freq(logistics_stack %>% filter(min_qualification != "Not Specified" & broad_job_spec %in% top10_broadjobspecs), target_cols = vars(broad_job_spec, min_qualification_broad), group_vars = vars(broad_job_spec)))
+
+broadqualif_bybroadjobspec_count$broad_job_spec <- factor(broadqualif_bybroadjobspec_count$broad_job_spec, levels = top10_broadjobspecs)
+
+(broadqualif_bybroadjobspec_plt <- stacked_hbar(df = broadqualif_bybroadjobspec_count, xvar = fct_rev(broad_job_spec), yvar = pct, fillvar = min_qualification_broad, xlab = "Top broad job specialisations", ylab = "Percentage share (%)", fill_lab = "Min. qualification category", ncol = 3))
+
+svpng(fname = "broadqualif_bybroadjobspec.png", plt = broadqualif_bybroadjobspec_plt, w = 6, h = 6)
+```
+
+```{r top 10 job specialisations and min qualification}
+# to see the high-value jobs in each broad_job_spec
+
+(top10_jobspecs <- (jobspec_count %>% top_n(10))$job_specialisation)
+
+(qualif_byjobspec_count <- count_freq(logistics_stack %>% filter(min_qualification != "Not Specified" & job_specialisation %in% top10_jobspecs), target_cols = vars(job_specialisation, min_qualification), group_vars = vars(job_specialisation)))
+
+qualif_byjobspec_count$job_specialisation <- factor(qualif_byjobspec_count$job_specialisation, levels = levels(reorder(jobspec_count$job_specialisation[jobspec_count$job_specialisation %in% top10_jobspecs], jobspec_count$n[jobspec_count$job_specialisation %in% top10_jobspecs])))
+
+(qualif_byjobspec_plt <- qualif_byjobspec_count %>% 
+  ggplot(aes(x = job_specialisation, y = pct, fill = fct_rev(min_qualification))) +
+  geom_col() +
+  geom_text(aes(label = ifelse(pct <=0.1, "", sprintf("%.1f", pct * 100))), position =  position_stack(vjust = 0.5)) +
+  coord_flip() +
+  scale_y_continuous(labels = function(x) round(x * 100, 0)) +
+  scale_fill_brewer(palette = "Greens") +
+  labs(x = "Top 10 job specialisations", y = "Percentage share (%)", fill = "Min. qualification") +
+    theme(legend.position = "bottom",
+          legend.text = element_text(size = 8)) +
+    guides(fill = guide_legend(title.position = "top",
+                               ncol = 2)))
+
+svpng(fname = "qualif_byjobspec.png", plt = qualif_byjobspec_plt, w = 6, h = 6)
+
+  # by job specialisation and broad min. qualification
+(broadqualif_byjobspec_count <- count_freq(logistics_stack %>% filter(min_qualification != "Not Specified" & job_specialisation %in% top10_jobspecs), target_cols = vars(job_specialisation, min_qualification_broad), group_vars = vars(job_specialisation)))
+
+broadqualif_byjobspec_count$job_specialisation <- factor(broadqualif_byjobspec_count$job_specialisation, levels = top10_jobspecs)
+
+(broadqualif_byjobspec_plt <- stacked_hbar(df = broadqualif_byjobspec_count, xvar = fct_rev(job_specialisation), yvar = pct, fillvar = min_qualification_broad, xlab = "Top 10 job specialisations", ylab = "Percentage share (%)", fill_lab = "Min. qualification category", ncol = 3))
+
+svpng(fname = "broadqualif_byjobspec.png", plt = broadqualif_byjobspec_plt, w = 6, h = 6)
+```
+
+We also analyse jobs that didn't specify the educational qualifications.
+```{r min qualification NA - by position level}
+bypos_ttl <- count_freq(logistics_jobs, target_cols = vars(position_level)) %>% rename(ttl_n = n)
+
+(bypos_minqualifNA <- count_freq(logistics_jobs %>% filter(min_qualification == "Not Specified"), target_cols = vars(position_level)) %>% 
+    # combine with min_qualifNA to see which pos level has the highest share of non-specified qualif
+    left_join(bypos_ttl %>% select(-pct), by = "position_level") %>% mutate(NApct = n/ttl_n))
+    
+```
+
+```{r min qualification NA - by job specialisation}
+byjobspecs_ttl <- logistics_stack %>% count_freq(target_cols = vars(job_specialisation)) %>% rename(ttl_n = n)
+
+logistics_stack %>% filter(min_qualification == "Not Specified") %>% count_freq(target_cols = vars(job_specialisation)) %>% 
+  left_join(byjobspecs_ttl %>% select(-pct), by = "job_specialisation") %>% 
+  mutate(NApct = n/ttl_n) #%>% arrange(-NApct)
+```
+
+```{r min qualification NA - by industry}
+byind_ttl <- logistics_jobs %>% count_freq(target_cols = vars(industry)) %>% rename(ttl_n = n)
+
+logistics_jobs %>% filter(min_qualification == "Not Specified") %>% 
+  count_freq(target_cols = vars(industry)) %>% 
+  left_join(byind_ttl %>% select(-pct), by = "industry") %>% 
+  mutate(NApct = n/ttl_n)
+```
+
+```{r min qualification NA - types of job}
+popular_jobs_byjobspec(dframe = logistics_jobs, is_filter = T, num_token = 2, js_var = min_qualification, js_selected = "Not Specified", topn = 10)
+```
+
+
+```{r by position level}
+# Most jobs are at least Junior position which requires 1-2 years of experience, entry-level jobs only accounted for 11%.
+count_freq(logistics_jobs, target_cols = vars(position_level))
+count_freq(logistics_jobs %>% filter(position_level != "Not Specified"), target_cols = vars(position_level))
+
+```
+
+```{r % of position level by job specialisation}
+(pos_byjobspec_count <- count_freq(logistics_stack %>% filter(position_level != "Not Specified"), target_cols = vars(broad_job_spec, position_level), group_vars = vars(broad_job_spec)))
+
+pos_byjobspec_count$broad_job_spec <- factor(pos_byjobspec_count$broad_job_spec, levels = levels(reorder(broadjobspec_count$broad_job_spec, broadjobspec_count$n)))
+
+(pos_byjobspec_plt <- pos_byjobspec_count %>% filter(!is.na(broad_job_spec)) %>% 
+  ggplot(aes(x = broad_job_spec, y = pct, fill = fct_rev(position_level))) +
+  geom_col() +
+  geom_text(aes(label = ifelse(pct <=0.1, "", sprintf("%.1f", pct * 100))), position =  position_stack(vjust = 0.5)) +
+  coord_flip() +
+  scale_y_continuous(labels = function(x) round(x * 100, 0)) +
+  scale_fill_brewer(palette = "Greens") +
+  labs(x = "Broad job specialisation", y = "Percentage share (%)", fill = "Position level") +
+    theme(legend.position = "bottom") +
+    guides(fill = guide_legend(title.position = "top")))
+
+svpng(fname = "pos_byjobspec.png", plt = pos_byjobspec_plt, h = 6, w = 6)
+```
+
+```{r by years of experience}
+# Most jobs require 1-2 years (corresponding to Junior Exe.), and 3 and 5 years (Senior Exe.) 
+count_freq(logistics_jobs, target_cols = vars(years_of_experience))
+
+# Most Junior Executive jobs require 1-2 years of experience
+count_freq(logistics_jobs %>% filter(position_level == "Junior Executive"), target_cols = vars(years_of_experience))
+
+# Senior Executive jobs require 3-5 years of experience 
+count_freq(logistics_jobs %>% filter(position_level == "Senior Executive"), target_cols = vars(years_of_experience))
+
+# Entry level
+# Senior Executive jobs require 3-5 years of experience 
+count_freq(logistics_jobs %>% filter(position_level == "Entry Level"), target_cols = vars(years_of_experience))
+
+# Most jobs not specifying years of experience are from the Entry Level and Non-Executive levels
+count_freq(logistics_jobs %>% filter(years_of_experience == ""), target_cols = vars(position_level))
+```
+
+```{r by industry}
+# which industries have the most logistics jobs?
+count_freq(logistics_jobs, target_cols = vars(industry))
+
+# which industries have the most high-value jobs?
+count_freq(logistics_jobs %>% filter(min_qualification %in% c("Diploma", "Bachelor's Degree", "Master's Degree")), target_cols = vars(industry))
+```
+
+```{r popular jobtitles function}
+test_fn <- function(dframe, is_filter = F, js_var = NULL){
+  
+}
+
+popular_jobs_byjobspec <- function(dframe = logistics_stack, is_filter = F, num_token = 2, js_var = NULL, js_selected = NULL, topn = 5, plt_title = "", label_threshold = 50){
+  ## this function counts top n job titles in certain (broad) job specs and plot
+  
+  # js_var: variable name (no quotation mark). It's either `broad_job_spec` or `job_specialisation`
+  # js_selected: a vector in format of `c()`. Can be broad_job_spec (if is_broad == T), and job_specialisation otherwise. 
+  # topn: integer, top n job titles for each broad_job_spec or job_specialisation
+  
+  js_var <- enquo(js_var)
+  
+  if (is_filter){
+    dframe <- dframe %>% filter(!!js_var %in% js_selected)
+  }
+  
+  # split job titles into bitokens for the specific (broad) job specialisations selected
+  js_tokens <- tokenization(dframe, col = "job_title", num_tokens = num_token, lemma = F, custom_stopwords = c("career", "fair", "jobstreet", "11th", "march", "9", "bayan", "lepas", "techâ", "2022", "virtual", "fresh", "graduate"))[[2]]
+  
+  # filter rows which contain the top job titles
+  popular_jobtitles <- dframe %>% 
+    filter(grepl(paste(js_tokens[1:topn, ]$word, collapse = "|"), job_title, ignore.case = T))
+  
+  # count the frequencies for each job_title (containing the tokens)
+  popular_jobtitles_js_count <- as_tibble(data.frame(matrix(nrow = topn, ncol = 2)))
+  colnames(popular_jobtitles_js_count) <- c("job_title", "n")
+  popular_jobtitles_js_count$job_title <- js_tokens[1:topn,]$word
+  popular_jobtitles_js_count$n <- as.double(popular_jobtitles_js_count$n)
+  for (i in 1:topn){
+    count <- popular_jobtitles %>% filter(grepl(js_tokens[i,]$word, job_title, ignore.case = T)) %>% nrow()
+    popular_jobtitles_js_count[i, ]$n <- count
+  }
+  
+  # plot
+  topn_jobtitles_js_plt <- hbar(df = popular_jobtitles_js_count, xvar = reorder(job_title, n), yvar = n, xlab = "Top job titles", ylab = "Count", is_pct = F, title = plt_title, hjust_threshold = label_threshold)
+  
+  return(list(js_tokens, popular_jobtitles_js_count, topn_jobtitles_js_plt))
+}
+```
+
+```{r type of jobs - overall}
+# what are the major logistics job titles? Use keywords
+  # overall popular job titles
+(top10_jobtitles_overall_plt <- popular_jobs_byjobspec(dframe = logistics_jobs, is_filter = F, topn = 10, plt_title = "", label_threshold = 40)[[3]])
+
+svpng(fname = "top10_jobtitles_overall.png", plt = top10_jobtitles_overall_plt, h = 7, w = 7)
+```
+
+```{r type of jobs - high-skilled/tertiary qualification}
+popular_jobs_byjobspec(dframe = logistics_jobs %>% filter(min_qualification_broad == "High-skilled"), is_filter = F, topn = 10, plt_title = "", label_threshold = 90)[[1]]
+
+(top10_tertiaryjobtitles_overall_plt <- popular_jobs_byjobspec(dframe = logistics_jobs %>% filter(min_qualification_broad == "High-skilled"), is_filter = F, topn = 10, plt_title = "", label_threshold = 20)[[3]])
+
+svpng(fname = "top10_tertiaryjobtitles_overall.png", plt = top10_tertiaryjobtitles_overall_plt, h = 7, w = 7)
+
+logistics_jobs %>% filter(min_qualification_broad == "High-skilled" & grepl("supply chain", job_title, ignore.case = T)) %>% view()
+
+  # what are the position levels for "customer service" and "supply chain" jobs?
+count_freq(data = logistics_jobs %>% filter(min_qualification_broad == "High-skilled" & grepl("supply chain", job_title, ignore.case = T)), target_cols = vars(position_level))
+
+count_freq(data = logistics_jobs %>% filter(min_qualification_broad == "High-skilled" & grepl("production planner", job_title, ignore.case = T)), target_cols = vars(position_level))
+```
+
+```{r skills required by tertiary production planner jobs}
+tokenization(data = logistics_jobs %>% filter(min_qualification_broad == "High-skilled" & grepl("production planner", job_title, ignore.case = T) & !is.na(job_description)), col = "job_description", num_tokens = 1)[[2]]
+
+tokenization(data = logistics_jobs %>% filter(min_qualification_broad == "High-skilled" & grepl("production planner", job_title, ignore.case = T) & !is.na(job_description)), col = "job_description", num_tokens = 2)[[2]]
+
+tokenization(data = logistics_jobs %>% filter(min_qualification_broad == "High-skilled" & grepl("production planner", job_title, ignore.case = T) & !is.na(job_description)), col = "job_description", num_tokens = 3)[[2]]
+```
+
+```{r skills required by tertiary supply chain jobs}
+tokenization(data = logistics_jobs %>% filter(min_qualification_broad == "High-skilled" & grepl("supply chain", job_title, ignore.case = T) & !is.na(job_description)), col = "job_description", num_tokens = 1)[[2]]
+
+tokenization(data = logistics_jobs %>% filter(min_qualification_broad == "High-skilled" & grepl("supply chain", job_title, ignore.case = T) & !is.na(job_description)), col = "job_description", num_tokens = 2)[[2]] #%>% filter(grepl("skill", word))
+
+tokenization(data = logistics_jobs %>% filter(min_qualification_broad == "High-skilled" & grepl("supply chain", job_title, ignore.case = T) & !is.na(job_description)), col = "job_description", num_tokens = 3)[[2]]
+```
+
+```{r type of jobs by industry}
+count_freq(data = logistics_jobs, target_cols = vars(industry))
+
+# logistics_inds <- c("Transportation / Logistics", "General & Wholesale Trading", "Retail / Merchandise")
+count_freq(data = logistics_jobs %>% filter(industry %in% c("Transportation / Logistics")), target_cols = vars(industry, min_qualification), group_vars = vars(industry))
+
+count_freq(data = logistics_jobs %>% filter(industry %in% c("Transportation / Logistics")), target_cols = vars(industry, position_level), group_vars = vars(industry))
+```
+
+```{r type of jobs by broad job specialisation}
+  # broad_job_spec == "Manufacturing"
+(top5_jobtitles_manuf_plt <- popular_jobs_byjobspec(js_var = broad_job_spec, js_selected = c("Manufacturing"), topn = 5, plt_title = "(a) Manufacturing", label_threshold = 90)[[3]])
+
+  # broad_job_spec == "Services"
+(top5_jobtitles_serv_plt <- popular_jobs_byjobspec(js_var = broad_job_spec, js_selected = c("Services"), topn = 5, plt_title = "(b) Services", label_threshold = 90)[[3]])
+
+  # broad_job_spec == "Sales/Marketing"
+(top5_jobtitles_sales_plt <- popular_jobs_byjobspec(js_var = broad_job_spec, js_selected = c("Sales/Marketing"), topn = 5, plt_title = "(c) Sales/Marketing", label_threshold = 30)[[3]])
+
+(top5_jobtitle_cbplt <- (top5_jobtitles_manuf_plt | top5_jobtitles_serv_plt) / (top5_jobtitles_sales_plt | plot_spacer())) +
+  plot_layout(widths = c(1, 1))
+
+svpng(fname = "top5_jobtitles_bybroadjobspec_cbplt.png", plt = top5_jobtitle_cbplt, h = 7, w = 7)
+
+  # check what's associated with "supply chain"
+logistics_jobs %>% filter(grepl("supply chain", job_title, ignore.case = T)) %>% view()
+logistics_jobs %>% filter(grepl("customer service", job_title, ignore.case = T)) %>% view()
+```
+
+
+```{r type of high-value jobs by broad job specs}
+(top5_jobtitles_computer_plt <- popular_jobs_byjobspec(num_token = 1, js_var = broad_job_spec, js_selected = c("Computer/Information Technology"), topn = 5, plt_title = "Computer/Information Technology", label_threshold = 90)[[3]])
+
+(top5_jobtitles_accfin_plt <- popular_jobs_byjobspec(num_token = 1, js_var = broad_job_spec, js_selected = c("Accounting/Finance"), topn = 5, plt_title = "Accounting/Finance", label_threshold = 90)[[3]])
+
+(top5_jobtitles_engineering_plt <- popular_jobs_byjobspec(num_token = 1, js_var = broad_job_spec, js_selected = c("Engineering"), topn = 5, plt_title = "Engineering", label_threshold = 90)[[3]])
+
+(top5_jobtitles_building_plt <- popular_jobs_byjobspec(num_token = 1, js_var = broad_job_spec, js_selected = c("Building/Construction"), topn = 5, plt_title = "Building/Construction", label_threshold = 90)[[3]])
+```
+
+```{r type of jobs by top job specialisations}
+  # broad_job_spec == "Manufacturing"
+(top5_jobtitles_manuf_plt2 <- popular_jobs_byjobspec(js_var = job_specialisation, js_selected = c("Manufacturing"), topn = 5, plt_title = "(a) Manufacturing", label_threshold = 90)[[3]])
+
+  # broad_job_spec == "Purchasing/Material Mgmt"
+(top5_jobtitles_purchasing_plt <- popular_jobs_byjobspec(js_var = job_specialisation, js_selected = c("Purchasing/Material Mgmt"), topn = 5, plt_title = str_wrap("(b) Purchasing/Material Mgmt", width = 20), label_threshold = 18)[[3]])
+
+  # broad_job_spec == "Logistics/Supply Chain"
+(top5_jobtitles_logistics_plt <- popular_jobs_byjobspec(js_var = job_specialisation, js_selected = c("Logistics/Supply Chain"), topn = 5, plt_title = "(c) Logistics/Supply Chain", label_threshold = 30)[[3]])
+
+(top5_jobtitle_cbplt2 <- (top5_jobtitles_manuf_plt2 | top5_jobtitles_purchasing_plt) / (top5_jobtitles_logistics_plt | plot_spacer())) +
+  plot_layout(widths = c(1, 1))
+
+svpng(fname = "top5_jobtitles_byjobspec_cbplt.png", plt = top5_jobtitle_cbplt2, h = 7, w = 7)
+
+  # check what's associated with "supply chain"
+logistics_jobs %>% filter(grepl("supply chain", job_title, ignore.case = T)) %>% view()
+logistics_jobs %>% filter(grepl("customer service", job_title, ignore.case = T)) %>% view()
+```
+
+```{r type of jobs by top job specialisations and min_qualification_broad}
+  
+skills_levels <- c("Low-skilled", "Mid-skilled", "High-skilled")
+main_jobspecs <- (jobspec_count %>% top_n(3))$job_specialisation
+# [1] "Purchasing/Material Mgmt" "Logistics/Supply Chain"   "Manufacturing"
+
+top_jobtitles_jsqualif <- as_tibble_row(list(job_title = NA, n = NA, job_specialisation = NA, min_qualification_broad = NA))
+for (s in skills_levels){
+  for (js in main_jobspecs) {
+    top_jobtitles_jsqualif <- top_jobtitles_jsqualif %>% 
+      bind_rows(
+        popular_jobs_byjobspec(dframe = logistics_stack %>% filter(min_qualification_broad == s), is_filter = T, js_var = job_specialisation, js_selected = js, topn = 5)[[2]] %>% 
+          mutate(job_specialisation = js, min_qualification_broad = s)
+        )
+  }
+}
+top_jobtitles_jsqualif <- top_jobtitles_jsqualif %>% filter(!is.na(job_title)) %>% filter(n != 0) %>% 
+  arrange(job_specialisation, min_qualification_broad, -n) %>% 
+  mutate(order = max(row_number()) - row_number())
+
+top_jobtitles_jsqualif$job_specialisation <- factor(top_jobtitles_jsqualif$job_specialisation, levels = main_jobspecs)
+top_jobtitles_jsqualif$min_qualification_broad <- factor(top_jobtitles_jsqualif$min_qualification_broad, levels = skills_levels)
+
+(top_jobtitles_jsqualif_plt <- top_jobtitles_jsqualif %>% 
+  ggplot(aes(x = order, y = n, fill = job_specialisation)) +
+  geom_col() +
+  coord_flip() +
+  facet_wrap(facets = vars(job_specialisation, min_qualification_broad), scales = "free_y", labeller = labeller(job_specialisation =  label_wrap_gen(width = 15, multi_line = F))) +
+  scale_x_continuous(breaks = top_jobtitles_jsqualif$order, labels = str_wrap(top_jobtitles_jsqualif$job_title, width = 20)) +
+  labs(x = "Top job titles", y = "Count") +
+  theme(legend.position = "none"))
+
+svpng(fname = "top_jobtitles_jsqualif.png", plt = top_jobtitles_jsqualif_plt, h = 10, w = 10)
+```
+
+```{r type of jobs by top job specialisations and min_qualification_broad - detailed}
+  # detailed look at differences among skill levels - Purchasing/Material Mgmt
+# High-skilled have more managerial positions
+logistics_stack %>% filter(job_specialisation == "Purchasing/Material Mgmt" & grepl(paste((top_jobtitles_jsqualif %>% filter(job_specialisation == "Purchasing/Material Mgmt" & min_qualification_broad == "Mid-skilled"))$job_title, collapse = "|"), job_title, ignore.case = T)) %>% count(position_level) %>% ungroup() %>% mutate(pct = n/sum(n))
+
+logistics_stack %>% filter(job_specialisation == "Purchasing/Material Mgmt" & grepl(paste((top_jobtitles_jsqualif %>% filter(job_specialisation == "Purchasing/Material Mgmt" & min_qualification_broad == "High-skilled"))$job_title, collapse = "|"), job_title, ignore.case = T)) %>% count(position_level) %>% ungroup() %>% mutate(pct = n/sum(n))
+
+  # Logistics/Supply Chain
+logistics_stack %>% filter(job_specialisation == "Logistics/Supply Chain" & min_qualification_broad == "Low-skilled" & grepl(paste((top_jobtitles_jsqualif %>% filter(job_specialisation == "Logistics/Supply Chain" & min_qualification_broad == "Low-skilled"))$job_title, collapse = "|"), job_title, ignore.case = T)) %>% view()
+
+logistics_stack %>% filter(job_specialisation == "Logistics/Supply Chain" & min_qualification_broad == "Mid-skilled" & grepl(paste((top_jobtitles_jsqualif %>% filter(job_specialisation == "Logistics/Supply Chain" & min_qualification_broad == "Mid-skilled"))$job_title, collapse = "|"), job_title, ignore.case = T)) %>% view()
+
+logistics_stack %>% filter(job_specialisation == "Logistics/Supply Chain" & min_qualification_broad == "High-skilled" & grepl(paste((top_jobtitles_jsqualif %>% filter(job_specialisation == "Logistics/Supply Chain" & min_qualification_broad == "High-skilled"))$job_title, collapse = "|"), job_title, ignore.case = T)) %>% view()
+```
+
+```{r}
+logistics_stack %>% filter(grepl("engineer", job_title, ignore.case = T) & broad_job_spec == "Engineering") %>% view()
+
+logistics_stack %>% filter(grepl("analyst | business | consultant", job_title, ignore.case = T) & broad_job_spec == "Computer/Information Technology") %>% view()
+
+logistics_stack %>% filter(grepl("manager | assistant | account", job_title, ignore.case = T) & broad_job_spec == "Accounting/Finance") %>% view()
+```
+
+```{r highly growth job specialisations}
+(uniq_companies_bysizejs_count <- logistics_stack %>% filter(!is.na(company_size)) %>% distinct_at(c("company_name", "job_specialisation"), .keep_all = T) %>% 
+  count(company_size, job_specialisation, sort = T) %>% 
+  rename(num_uniq_companies = n))
+
+topn_jobspecs <- (jobspec_count %>% top_n(5))$job_specialisation
+
+(av_postings_bysizejs <- logistics_stack %>% 
+    filter(!is.na(company_size)) %>% 
+    group_by(company_size, job_specialisation) %>% 
+    summarise(total_postings = n()) %>% 
+    left_join(uniq_companies_bysizejs_count) %>% 
+    mutate(av_postings = total_postings / num_uniq_companies)  %>% 
+    filter(job_specialisation %in% topn_jobspecs) %>% 
+    ungroup() %>% group_by(company_size) %>% 
+    mutate(med_postings = median(av_postings)))
+
+av_postings_bysizejs$job_specialisation <- factor(av_postings_bysizejs$job_specialisation, levels = topn_jobspecs)
+
+  # the vertical line is the median for each group among the top 5 job specialisations
+(size_bytop5_jobspec_plt <- hbar(df = av_postings_bysizejs, xvar = fct_rev(job_specialisation), yvar = av_postings, is_pct = F, hjust_threshold = 1.0) + 
+           facet_wrap(facets = vars(company_size), scales = "free_x") +
+           geom_hline(aes(yintercept = med_postings), linetype = "dotted", color = "gray30", size = 0.4))
+
+svpng(fname = "size_bytop5_jobspec.png", plt = size_bytop5_jobspec_plt, h = 10, w = 7)
+```
+
+
+```{r job specialisation by min_qualification_broad}
+(top3_jobsspecs_bybroadminqualif <- count_freq(logistics_stack, target_cols = vars(min_qualification_broad, job_specialisation), group_vars = vars(min_qualification_broad)) %>%
+  mutate(grp_n = sum(n),
+         min_qualification_broad = paste0(min_qualification_broad, " (n=", grp_n, ")")) %>% 
+  slice_max(order_by = n, n = 3) %>% 
+  ungroup() %>% 
+  mutate(order = max(row_number()) - row_number()))
+
+(top3_jobsspecs_bybroadminqualif_plt <- top3_jobsspecs_bybroadminqualif %>% 
+  ggplot(aes(x = order, y = pct, fill = min_qualification_broad)) +
+  geom_col() +
+  facet_wrap(facets = vars(reorder(min_qualification_broad, - n)), scales = "free_y", nrow = 2) +
+  geom_text(aes(label = sprintf("%.1f", pct * 100), 
+                hjust = ifelse(pct >= 0.25, 1, 0))) +
+  coord_flip() +
+  labs(x = "Job specialisation", y = "Percentage share (%)") +
+  scale_y_continuous(labels = function(x) round(x * 100, 0)) +
+  scale_x_continuous(breaks = top3_jobsspecs_bybroadminqualif$order, labels = str_wrap(top3_jobsspecs_bybroadminqualif$job_specialisation, width = 15)) +
+  theme(legend.position = "none"))
+
+svpng(fname = "top3_jobspecs_bybroadminqualif.png", plt = top3_jobsspecs_bybroadminqualif_plt, h = 5, w = 9)
+```
+
+
+# salary
+81% of the job postings didn't specify the salary.
+```{r % salary NA}
+sum(logistics_jobs$salary == "") / nrow(logistics_jobs)
+```
+
+Low-level positions are more likely to reveal salary. The salary analysed might be lower than the actual situation.
+Therefore, it's better to use weighted average.
+```{r salary NA - by position level}
+# bypos_ttl <- count_freq(logistics_jobs, target_cols = vars(position_level)) %>% rename(ttl_n = n)
+
+(bypos_salaryNA <- count_freq(logistics_jobs %>% filter(salary == ""), target_cols = vars(position_level)) %>% 
+    # combine with bypos_ttl to see which pos level has the highest share of non-specified qualif
+    left_join(bypos_ttl %>% select(-pct), by = "position_level") %>% mutate(NApct = n/ttl_n))
+    
+```
+
+Again, jobs with higher % of high-skilled jobs have higher missing salaries (~80%). General and clerical work lower (~60%).
+```{r salary NA - by job specialisation}
+# byjobspecs_ttl <- logistics_stack %>% count_freq(target_cols = vars(job_specialisation)) %>% rename(ttl_n = n)
+
+logistics_stack %>% filter(salary == "") %>% count_freq(target_cols = vars(job_specialisation)) %>% 
+  left_join(byjobspecs_ttl %>% select(-pct), by = "job_specialisation") %>% 
+  mutate(NApct = n/ttl_n) #%>% arrange(-NApct)
+```
+
+```{r salary NA - by industry}
+# byind_ttl <- logistics_jobs %>% count_freq(target_cols = vars(industry)) %>% rename(ttl_n = n)
+
+logistics_jobs %>% filter(salary == "") %>% 
+  count_freq(target_cols = vars(industry)) %>% 
+  left_join(byind_ttl %>% select(-pct), by = "industry") %>% 
+  mutate(NApct = n/ttl_n)
+```
+
+```{r min qualification NA - types of job}
+popular_jobs_byjobspec(dframe = logistics_jobs, is_filter = T, num_token = 2, js_var = min_qualification, js_selected = "Not Specified", topn = 10)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

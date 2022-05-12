@@ -1,0 +1,289 @@
+This analysis is based on jobs scraped from jobstreet portal for logistics jobs in Penang, Penang - Others, and Perai on 15/3/2022 and 18/3/2022 (`logistics_penangall.csv`).
+
+```{r load packages}
+pacman::p_load(readr, dplyr, tidyr, tibble, stringr, textstem, tidytext, ggplot2, patchwork, RColorBrewer, tidyverse)
+```
+
+```{r set theme for ggplot}
+theme_set(theme_classic(base_size = 11))
+```
+
+```{r global function}
+count_freq <- function(data, target_cols, group_vars=NULL, totaln=NULL, totaln_df=NULL){
+  # RETURNS a dataframe with count n and percentage share
+  # data: dataframe
+  # target_cols: a list of variables - input in vars(), with variable names to be counted listed in vars()
+  # group_vars: a list of variables - input in vars(), with variable names to be grouped listed in vars(). Set to NULL if no variable to be grouped by
+  # totaln: integer - specified total n (esp. when totaln not equal to sum(n))
+  # totaln_df: dataframe - contains columns of `group_vars` and `n` (count for `group_vars`)
+  
+  # stopifnot(
+  #   is.list(group_vars),
+  #   is.list(target_cols)
+  # )
+  if (is.null(group_vars)){
+    if (is.null(totaln)){
+      data %>% count(!!!target_cols, sort=T) %>% ungroup() %>% mutate(pct=n/sum(n))
+    }
+    else if (!is.null(totaln)){
+      data %>% count(!!!target_cols, sort=T) %>% ungroup() %>% mutate(pct=n/totaln)
+    }
+  }
+  else if (!is.null(group_vars)){
+    # want to have group_vars but still take all as total
+    if (!is.null(totaln)){
+      data %>% count(!!!target_cols) %>% ungroup() %>% group_by(!!!group_vars) %>% mutate(pct=n/totaln) %>% arrange(-n)
+    } 
+    else if (is.null(totaln_df)){
+      data %>% count(!!!target_cols) %>% ungroup() %>% group_by(!!!group_vars) %>% mutate(pct=n/sum(n)) %>% arrange(!!!group_vars, -n)
+    }
+    else if (!is.null(totaln_df)){
+      totaln_df <- totaln_df %>% dplyr::rename(bcat_n=n)
+      
+      data %>% count(!!!target_cols) %>% left_join(totaln_df, by=c(enquos(group_vars))) %>% mutate(pct=n/bcat_n) %>% arrange(!!!group_vars, -n)
+    }
+  }
+}
+
+# tokenize and lemmatize
+tokenization <- function(data, col, num_tokens, custom_stopwords=NULL, stopwords_toremove=NULL, lemma=T, stop=T){
+  # data: dataframe
+  # col: character - name of column to be tokenized
+  # num_tokens: integer
+  # custom_stopwords: vector - a vector containing customized stopwords to be added
+  # stopwords_toremove: vector - a vector containing stopwords to be removed from default stopwords
+  # lemma: boolean - if True, words will be lemmatized to root words
+  # stop: boolean - if True, stopwords will be filtered out
+  
+  # define stopwords 
+  stopwords <- stop_words$word
+  if (!is.null(custom_stopwords)){
+    stopwords <- c(stopwords, custom_stopwords)
+  }
+  if (!is.null(stopwords_toremove)){
+    stopwords <- stopwords[!stopwords %in% stopwords_toremove]
+  }
+  
+  tokens <- data %>% unnest_tokens(word, !!sym(col))
+  
+  if (lemma){
+    tokens <- tokens %>% mutate(word=lemmatize_words(word))
+  }
+  if (stop){
+    tokens <- tokens %>% filter(!word %in% stopwords)
+  }
+  
+  # to return a dataframe containing words in desc order of word counts 
+  if (num_tokens == 1){
+    df_results <- tokens %>% count(word, sort=T)
+  }
+  else if (num_tokens > 1){
+    df_results <- tokens %>% 
+      group_by(id) %>% 
+      summarise(combined_words = paste(word, collapse = " ")) %>% 
+      unnest_tokens(word, combined_words, token = "ngrams", n=num_tokens) %>% 
+      filter(!is.na(word)) %>% 
+      count(word, sort=T)
+  }
+  
+  return(list(tokens, df_results))
+}
+
+svpng <- function(fname, plt, h, w, path = './charts', scale=1){
+  ggsave(filename = fname, plot = plt,
+       device = "png", units = 'in', dpi = 300,
+       width = h, height = h, path = path, limitsize = F,
+       scale = scale)
+}
+
+hbar <- function(df, xvar, yvar, xlab="", ylab="", title = "", hjust_threshold = 0.5, is_pct = T, dp = "%0.1f"){
+  # dp: to specify decimal places labelled in the chart
+  
+  xvar <- enquo(xvar)
+  yvar <- enquo(yvar)
+  
+  p <- df %>% 
+    ggplot(aes(x = !!xvar, y = !!yvar, fill = "salmon")) +
+    geom_col() +
+    coord_flip() +
+    labs(x = xlab, y = ylab, title = title) +
+    theme(legend.position = "none")
+  
+  if(is_pct){
+    p <- p +
+      geom_text(aes(label = sprintf(dp, !!yvar * 100),
+                  hjust = ifelse(!!yvar >= hjust_threshold, 1, 0))) +
+      scale_y_continuous(labels = function(x) round(x * 100, 0))
+  } else {
+    p <- p + 
+      geom_text(aes(label = sprintf(dp, !!yvar),
+                  hjust = ifelse(!!yvar >= hjust_threshold, 1, 0)))
+      scale_y_continuous(labels = function(x) format(round(x, 0), big.mark = ","))
+  }
+  
+  return(p)
+}
+
+stacked_hbar <- function(df, xvar, yvar, fillvar, nolabel_threshold = 0.1, xlab = "", ylab = "", fill_lab = "", legend.size = 9, ncol = 2){
+  xvar <- enquo(xvar)
+  yvar <- enquo(yvar)
+  fillvar <- enquo(fillvar)
+  
+  p <- df %>% 
+    ggplot(aes(x = !!xvar, y = !!yvar, fill = !!fillvar)) +
+    geom_col() +
+    geom_text(aes(label = ifelse(pct <= nolabel_threshold, "", sprintf("%.1f", pct * 100))), position =  position_stack(vjust = 0.5)) +
+    coord_flip() +
+    scale_y_continuous(labels = function(x) round(x * 100, 0)) +
+    scale_fill_brewer(palette = "Greens") +
+    labs(x = xlab, y = ylab, fill = fill_lab) +
+      theme(legend.position = "bottom",
+            legend.text = element_text(size = legend.size)) +
+      guides(fill = guide_legend(title.position = "top",
+                                 ncol = ncol))
+  
+  return(p)
+}
+```
+
+```{r load data}
+penang <- read.csv("logistics_penang.csv")
+penang_others <- read.csv("logistics_penang_others.csv")
+perai <- read.csv("logistics_perai.csv")
+penangall <- read.csv("logistics_penangall.csv") #2337
+
+  # add column of `job_description` for the first batch of datasets
+penang$job_description <- ""
+penang_others$job_description <- ""
+perai$job_description <- ""
+penangall <- penangall %>% select(posted_date, company_name, job_title, salary, position_level, qualification, years_of_experience, job_type, job_specialisation, industry, company_size, job_description)
+
+logistics_jobs0 <- bind_rows(penang, penang_others, perai, penangall)
+
+  # correct an entry
+logistics_jobs0$job_title[logistics_jobs0$job_title == "Schedule Waste Techincian"] <- "Schedule Waste Technician"
+
+logistics_jobs0 <- logistics_jobs0 %>% distinct_at(colnames(logistics_jobs0)[!colnames(logistics_jobs0) %in% c("posted_date", "job_description")], .keep_all = T) %>% 
+  mutate(id = row_number()) %>% 
+  select(id, everything()) # 2458
+
+```
+
+```{r clean - add min qualification}
+logistics_jobs0 <- logistics_jobs0 %>% 
+  mutate(min_qualification = str_split_fixed(qualification, ",", 2)[, 1],
+         min_qualification_broad = ifelse(min_qualification %in% c("Professional Certificate", "Diploma", "Bachelor's Degree", "Master's Degree", "Doctorate (PhD)"), "High-skilled", ifelse(min_qualification %in% c("Primary/Secondary School/O Level"), "Low-skilled", ifelse(min_qualification == "Not Specified", "Not Specified", "Mid-skilled"))))
+```
+
+```{r check data}
+sapply(logistics_jobs0, FUN = function(x) sum(x == ""))
+
+sapply(logistics_jobs0 %>% select(position_level, years_of_experience, job_type, job_specialisation, company_size, industry, min_qualification), FUN = function(x) unique(x))
+```
+
+```{r clean - job title}
+logistics_jobs0$job_title <- gsub("(o|O)perator (p|P)engeluaran", "production operator", logistics_jobs0$job_title)
+logistics_jobs0$job_title[logistics_jobs0$job_title == "OPERATOR PENGELUARAN"] <- "production operator"
+# logistics_jobs0 %>% filter(grepl("operator pengeluaran", job_title, ignore.case = T)) %>% view()
+```
+
+```{r clean company size}
+logistics_jobs0$company_size <- gsub(" Employees", "", logistics_jobs0$company_size)
+logistics_jobs0$company_size[logistics_jobs0$company_size == "More than 5000"] <- "> 5000"
+```
+
+```{r clean salary}
+# logistics_jobs0 <- 
+logistics_jobs0 %>% mutate(salary = gsub("^MYRÂ |,", "", salary)) %>% view()
+```
+
+```{r set factor levels}
+set_factor_lvls <- function(df){
+  df$position_level <- factor(df$position_level, levels = c("Not Specified", "Non-Executive", "Entry Level", "Junior Executive", "Senior Executive", "Manager", "Senior Manager"))
+  
+  df$min_qualification <- factor(df$min_qualification, levels = c("Not Specified", "Primary/Secondary School/O Level", "Higher Secondary/STPM/'A' Level/Pre-U", "Professional Certificate", "Diploma", "Bachelor's Degree", "Master's Degree", "Doctorate (PhD)"))
+  
+  df$min_qualification_broad <- factor(df$min_qualification_broad, levels = c("Not Specified", "Low-skilled", "Mid-skilled", "High-skilled"))
+  
+  df$company_size <- factor(df$company_size, levels = c("1 - 50", "51 - 200", "201 - 500", "501 - 1000", "1001 - 2000", "2001 - 5000", "> 5000"))
+}
+set_factor_lvls(logistics_jobs0)
+```
+
+```{r clean related jobs}
+logistics_keywords <- read.csv("logistics_keywords.csv")
+logistics_keywords <- paste(logistics_keywords$keyword, collapse = "|")
+
+ # incl. jobs in "Transportation / Logistics" industry and job specs of "Purchasing/Material Mgmt", "Logistics/Supply Chain"
+logistics_jobs_indsubset <- logistics_jobs0 %>% filter(industry == "Transportation / Logistics")
+logistics_jobs_jssubset <- logistics_jobs0 %>% 
+  filter(!id %in% logistics_jobs_indsubset$id) %>% 
+  filter(grepl("Purchasing/Material Mgmt|Logistics/Supply Chain", job_specialisation))
+  
+  # for those not in the related industries and job specs, filter job titles that contain the logistics_keywords
+logistics_jobs_rest <- logistics_jobs0 %>%
+  filter(!id %in% c(logistics_jobs_indsubset$id, logistics_jobs_jssubset$id)) %>% 
+  filter(grepl(logistics_keywords, job_title, ignore.case = T)) %>% 
+  filter(!grepl("(wealth|life|event|shift) planner", job_title, ignore.case = T)) %>% 
+  filter(!grepl("material develop", job_title, ignore.case = T)) %>% 
+  filter(!grepl("personal|peribadi|bus |company driver|tayar", job_title, ignore.case = T))
+
+logistics_jobs <- logistics_jobs_indsubset %>% 
+  bind_rows(logistics_jobs_jssubset) %>% 
+  bind_rows(logistics_jobs_rest)
+
+rm(logistics_jobs_indsubset, logistics_jobs_jssubset, logistics_jobs_rest)
+```
+
+```{r export cleaned logistics_jobs df}
+write.csv(x = logistics_jobs, file = "logistics_jobs_cleaned.csv", row.names = F)
+write.csv(x = logistics_jobs %>% filter(!id %in% logistics_jobs$id), file = "non_logistics_jobs.csv", row.names = F)
+```
+
+# directly load the cleaned dataset for the second time
+```{r load cleaned dataset}
+logistics_jobs <- read.csv("logistics_jobs_cleaned.csv")
+set_factor_lvls(logistics_jobs)
+```
+
+```{r clean salary2}
+logistics_jobs$salary <- gsub("MYR |,", "", logistics_jobs$salary)
+logistics_jobs$salary <- gsub("MYR[[:space:]]", "", logistics_jobs$salary)
+logistics_jobs %>% 
+  mutate(salary2 = (str_extract_all(gsub(",", "", salary), pattern = "[0-9]+"))[1]) %>% 
+  # mutate(salary_min = salary2[1]) %>% 
+  # mutate(across("salary", str_replace_all, c("MYR " = "", "," = ""))) %>%
+  # mutate(str)
+  view()
+```
+
+```{r clean - job specialisation}
+logistics_jobs2 <- logistics_jobs %>% separate(job_specialisation, into = c("broad_job_spec.1", "job_spec.1", "broad_job_spec.2", "job_spec.2"), sep = ",")
+
+  # replace values of job specs and broad job specs for rows where the job specs are in the same broad job specs category
+  # get ids of those rows 
+js_ids <- (logistics_jobs2 %>% filter(!is.na(broad_job_spec.2) & is.na(job_spec.2)))$id
+logistics_jobs2$job_spec.2[logistics_jobs2$id %in% js_ids] <- logistics_jobs2$broad_job_spec.2[logistics_jobs2$id %in% js_ids]
+logistics_jobs2$broad_job_spec.2[logistics_jobs2$id %in% js_ids] <- logistics_jobs2$broad_job_spec.1[logistics_jobs2$id %in% js_ids]
+# logistics_jobs2 %>% filter(id %in% js_ids) %>% view()
+
+logistics_stack1 <- logistics_jobs2 %>% 
+  select(-starts_with("job_spec")) %>% 
+  pivot_longer(cols = starts_with("broad_job_spec"), names_to = "broad_job_spec_no", values_to = "broad_job_spec", values_drop_na = T) %>% 
+  select(-broad_job_spec_no)
+# View(logistics_stack1)
+
+logistics_stack2 <- logistics_jobs2 %>% 
+  select(-starts_with("broad_job_spec")) %>% 
+  pivot_longer(cols = starts_with("job_spec"), names_to = "job_spec_no", values_to = "job_specialisation", values_drop_na = T) %>% 
+  select(-job_spec_no)
+# view(logistics_stack2)
+
+logistics_stack <- logistics_stack1 %>% bind_cols(logistics_stack2 %>% select(job_specialisation))
+logistics_stack$broad_job_spec2 <- logistics_stack$broad_job_spec
+logistics_stack[duplicated(logistics_stack[, c("id", "broad_job_spec")]), "broad_job_spec"] <- NA
+# logistics_stack %>% filter(is.na(broad_job_spec) & !is.na(job_specialisation)) %>% view()
+
+rm(logistics_jobs2, logistics_stack1, logistics_stack2)
+```
+
